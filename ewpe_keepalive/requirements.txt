@@ -1,0 +1,12 @@
+# The app image's one dependency, cryptography (AES for the reply, the TLS certificate),
+# with its own dependencies: musllinux wheels for amd64 and aarch64, pinned by hash.
+# cffi has a wheel per Python version (here cp314, the base image's Python): a base image
+# with another Python needs the cffi hashes of that version. CI builds both architectures.
+cryptography==50.0.2 \
+    --hash=sha256:85d0d9a31b9098e98534226d5686b47264b95e62ce459dc2e62fdfc809f9fe93 \
+    --hash=sha256:25784ce8b9621c90c643efb9e1e2162ab3b0224cae446ad5e70e7fcb1ce18b51
+cffi==2.1.1 \
+    --hash=sha256:5c58fe613dc5e5336357eff555824a314d8e43282600435c8d1cb6a7a2fedd13 \
+    --hash=sha256:64faea20f4e2613363a1a9b9c7dd73058f3ecd00133a511e72ad7c511658f527
+pycparser==3.12 \
+    --hash=sha256:a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e

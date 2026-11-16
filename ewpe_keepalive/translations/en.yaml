@@ -1,0 +1,30 @@
+configuration:
+  allowed_ips:
+    name: Allowed module addresses
+    description: >-
+      Accept connections only from these IP addresses (your Wi-Fi module's address). Empty:
+      accept any address.
+  dns_address:
+    name: DNS server (Home Assistant address)
+    description: >-
+      Optional, for a module given Home Assistant as its DNS server. With the address of
+      Home Assistant set here, the app answers DNS queries for dis.gree.com with it on UDP
+      port 53, and NXDOMAIN for any other name. Enable port 53/udp in the Network section
+      too. Not set: no DNS server (rewrite dis.gree.com in your own DNS instead).
+  log_level:
+    name: Log level
+    description: >-
+      "info" logs events: the module connecting, its pauses, TLS errors, rejected
+      connections, and a summary every hour. "debug" also logs every request, with the
+      module's MAC and address.
+network:
+  1813/tcp: >-
+    The Gree dis port: the module connects here once your DNS sends dis.gree.com to Home
+    Assistant. The module always uses 1813, so keep this port.
+  53/udp: >-
+    The optional DNS server (the dns_address option). Set it to 53 only with that option,
+    and only if nothing else on this host uses port 53 (AdGuard Home, Pi-hole, Dnsmasq):
+    otherwise the app does not start. The module always asks on 53.
+  8080/tcp: >-
+    Status JSON and health check. Home Assistant reads it over the internal network,
+    so it does not need to be opened on the host.

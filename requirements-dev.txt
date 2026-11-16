@@ -1,0 +1,4 @@
+# Development and CI. The app's one dependency, at the version of the image
+# (ewpe_keepalive/requirements.txt), and PyYAML for tools/check_config.py.
+cryptography==50.0.2
+PyYAML==6.0.3

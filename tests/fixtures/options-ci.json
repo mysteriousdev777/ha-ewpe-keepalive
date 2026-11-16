@@ -1,0 +1,5 @@
+{
+  "allowed_ips": [],
+  "log_level": "info",
+  "dns_address": "192.0.2.1"
+}

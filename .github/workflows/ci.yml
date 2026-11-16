@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Read-only: no secrets, no writes, nothing published.
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11: the oldest supported (standalone runs); 3.14: the app image.
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -r requirements-dev.txt
+      - run: python -m unittest discover -s tests -v
+
+  checks:
+    name: App config and privacy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      - run: python tools/check_config.py
+      - run: python tools/privacy_check.py
+
+  image:
+    name: App image (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    needs: tests
+    strategy:
+      fail-fast: false
+      matrix:
+        # Native runners for both architectures in config.yaml: no emulation.
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            platform: linux/amd64
+            machine: x86_64
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            machine: aarch64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+
+      - name: Build (the same Dockerfile the Supervisor builds)
+        run: docker build --platform ${{ matrix.platform }} -t ewpe-keepalive:ci ewpe_keepalive
+
+      - name: Architecture, Python and cryptography in the image
+        run: |
+          docker run --rm --entrypoint python3 ewpe-keepalive:ci -c \
+            "import platform, sys, cryptography; print(platform.machine(), sys.version); print('cryptography', cryptography.__version__)" \
+            | tee "$RUNNER_TEMP/image.txt"
+          grep -q "^${{ matrix.machine }} 3\.14\." "$RUNNER_TEMP/image.txt"
+          grep -q "^cryptography $(sed -n 's/^cryptography==//p' requirements-dev.txt)$" "$RUNNER_TEMP/image.txt"
+
+      # The DNS server on (options-ci.json); its port 53 goes to 10053 on the host, where
+      # systemd-resolved holds 53.
+      - name: Start like the Supervisor does (options in /data)
+        run: |
+          mkdir -p "$RUNNER_TEMP/data"
+          cp tests/fixtures/options-ci.json "$RUNNER_TEMP/data/options.json"
+          docker run -d --name keepalive --init -v "$RUNNER_TEMP/data:/data:ro" \
+            -p 1813:1813 -p 8080:8080 -p 127.0.0.1:10053:53/udp ewpe-keepalive:ci
+
+      - name: Smoke test with a fake module
+        run: python tests/smoke_container.py
+
+      - name: Stops cleanly and logged no errors
+        run: |
+          docker stop -t 10 keepalive
+          docker logs keepalive > "$RUNNER_TEMP/app.log" 2>&1
+          cat "$RUNNER_TEMP/app.log"
+          test "$(docker inspect -f '{{.State.ExitCode}}' keepalive)" -eq 0
+          if grep -E "ERROR|Traceback" "$RUNNER_TEMP/app.log"; then exit 1; fi
+          grep -q "DNS server on port 53," "$RUNNER_TEMP/app.log"
+          grep -q "DNS: first answer for dis.gree.com" "$RUNNER_TEMP/app.log"
+          grep -q "module connected" "$RUNNER_TEMP/app.log"
+          grep -q "stopped" "$RUNNER_TEMP/app.log"
+
+      - name: App log on failure
+        if: failure()
+        run: docker logs keepalive || true

@@ -1,0 +1,27 @@
+name: EWPE Keepalive
+version: "0.1.0"
+slug: ewpe_keepalive
+description: >-
+  Local stand-in for the Gree cloud's dis server: keeps a Gree Wi-Fi module (EWPE Smart
+  or Gree+ app) answering on the local network without internet access. Needs
+  dis.gree.com sent to Home Assistant: a DNS rewrite, or the app's optional DNS server.
+url: https://github.com/mysteriousdev777/ha-ewpe-keepalive
+arch:
+  - amd64
+  - aarch64
+init: true
+startup: services
+boot: auto
+ports:
+  1813/tcp: 1813
+  53/udp: null
+  8080/tcp: null
+watchdog: http://[HOST]:[PORT:8080]/health
+options:
+  allowed_ips: []
+  log_level: info
+schema:
+  allowed_ips:
+    - str
+  dns_address: str?
+  log_level: list(debug|info|warning|error)
