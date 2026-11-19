@@ -100,15 +100,23 @@ rest:
     scan_interval: 60
     binary_sensor:
       - name: EWPE Module Connected
+        unique_id: ewpe_module_connected
         device_class: connectivity
         value_template: "{{ value_json.connected }}"
     sensor:
-      - name: EWPE Module Last Request
-        device_class: timestamp
-        value_template: "{{ value_json.last_dis }}"
+      - name: EWPE Module Requests Last Hour
+        unique_id: ewpe_module_requests_last_hour
+        state_class: measurement
+        value_template: "{{ value_json.last_hour.dis }}"
       - name: EWPE Module Pauses Last Hour
+        unique_id: ewpe_module_pauses_last_hour
+        state_class: measurement
         value_template: "{{ value_json.last_hour.gaps }}"
 ```
+
+Expect the requests a little under 720 an hour per module: the minute in progress is still
+being counted. A sensor of `last_dis` is left out on purpose: it would change at every
+poll and fill the logbook.
 
 | Field | Meaning |
 |---|---|
@@ -135,14 +143,14 @@ The status contains no MAC addresses and no IP addresses.
 - **About 720 short connections an hour.** The module asks every 5 seconds, each time with
   a new TLS connection: firmware V1.45 does this when the answer names no cloud server.
 - **No time from the cloud.** The module's clock starts at 1970-01-01 at each boot. Control
-  from Home Assistant worked without it in the test.
-- **If the app is stopped** (an update, a restart of Home Assistant or the host), the
-  module stops answering within 5 to 20 seconds, and the device is `unavailable` in Home
-  Assistant meanwhile. Once the app is back, the module asks within seconds and Home
-  Assistant sees the device again within a minute. A stop of 15 minutes made the module
-  restart itself after about 14; the device keeps running through a module restart. This
-  was measured with way B (the app's prototype was the module's DNS server too); with
-  way A it was not measured.
+  from Home Assistant works without it.
+- **If the app is stopped** (an update of the app, a reboot of the host or an update of its
+  OS; a restart of Home Assistant itself does not stop it), the module stops answering
+  within 5 to 20 seconds, and the device is `unavailable` in Home Assistant meanwhile.
+  Once the app is back, the module asks within seconds and Home Assistant sees the device
+  again within a minute. A stop of 15 minutes made the module restart itself after about
+  14; the device keeps running through a module restart. Measured with way B: the DNS
+  server and port 1813 stopping together.
 - **Several modules** can use one app: each gets its answer, the status counts them in
   `modules` and adds their requests up.
 - **The certificate** is self-signed and new at each start. The module does not check it

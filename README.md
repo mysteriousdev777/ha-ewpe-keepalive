@@ -9,8 +9,9 @@ device with a Gree Wi-Fi module keeps answering Home Assistant without internet 
 
 Air conditioners, dehumidifiers and other devices with a Gree Wi-Fi module (Gree,
 Cooper&Hunter, Sinclair, Daitsu and other brands; set up with the EWPE Smart or Gree+ app)
-can be controlled locally, on UDP port 7000: the `gree` integration of Home Assistant and
-custom ones like `ewpe_smart` do that. But the module's local port and its cloud
+can be controlled locally, on UDP port 7000: the `gree` integration of Home Assistant
+(air conditioners) and [EWPE Local](https://github.com/mysteriousdev777/ha-ewpe-local)
+(dehumidifiers) do that. But the module's local port and its cloud
 connection share one thread: blocked from the internet, the module stops answering
 locally, and the device stays `unavailable` in Home Assistant.
 
@@ -29,27 +30,29 @@ With this app as its cloud, the module answers locally as before, and does not r
   documentation shows both ways.
 - Reports the module's state as JSON for Home Assistant REST sensors.
 
-<!-- Internal note: the results below are the PC prototype's. To be replaced with the
-results of a test of the installed app (local answers, Home Assistant, stops of the app). -->
 Tested with a **Cooper&Hunter CH-D014WD6-30LD WF** dehumidifier and its Gree module
 GRJWB04-J (U-WB05RT, Realtek RTL8720CF), firmware V1.45 (firmware code `362001065279`),
-controlled by `ewpe_smart`. A prototype of this server on a PC, answering `svr` without
-`mqttInfo` as this app does, kept it under control for almost 7 hours without internet:
-every local request answered, typically in about 20 ms. Other modules and firmware
-versions were not tested. The app is built for amd64 and aarch64 Home Assistant hosts.
+controlled by [EWPE Local](https://github.com/mysteriousdev777/ha-ewpe-local), with the
+app's DNS server (way B of its documentation). In the app's first three days without
+internet, the module asked `dis` about 710 times an hour while powered, with no TLS
+failures and no requests the app does not answer. Home Assistant polled it every 30
+seconds, and every command took effect within a second. Polls went unanswered only while
+the module itself was gone (the device unplugged, a power cut, once a minute off Wi-Fi),
+and each time it came back by itself. Other modules and firmware versions were not
+tested. The app is built for amd64 and aarch64 Home Assistant hosts.
 
 ## Open question: the request every 5 seconds
 
 Answered without an MQTT broker, firmware V1.45 asks `dis` again once its 5-second answer
 timeout is over: about 720 short TLS connections an hour. Its firmware has no switch to
 turn the cloud off, and no answer stops the loop (seen in the disassembled firmware).
-In the 7-hour test the loop caused no problems; if you know a way to stop it, sharing it
-in an issue would be great.
+In the tests and the first days of use the loop caused no problems; if you know a way to
+stop it, sharing it in an issue would be great.
 
 ## Approaches compared
 
 Measured with the PC prototype on the tested module, a few minutes each. Local answers:
-`status` requests with a 5-second timeout, as `ewpe_smart` uses.
+`status` requests with a 5-second timeout, the one EWPE Local uses.
 
 | Answer to the module | Its connections a minute | Local answers |
 |---|---|---|
@@ -121,6 +124,8 @@ module's DNS server set to the machine (UDP 53, a privileged port on Linux).
 ```
 pip install -r requirements-dev.txt
 python -m unittest discover -s tests       # tests
+ruff format .                              # format
+ruff check .                               # lint
 python tools/check_config.py               # the app definition
 python tools/privacy_check.py --history    # before every push, see below
 ```
@@ -131,9 +136,9 @@ The server is in `ewpe_keepalive/keepalive/`: `protocol.py` (the `dis` request a
 does: the counters), `server.py` (what the module asks: `dis` connections, DNS queries),
 `status.py` (`/status` and `/health`), `__main__.py` (command line and logging).
 
-CI runs the tests on Python 3.11 and 3.14, checks the app definition
-(`tools/check_config.py`), and builds the image for both architectures (amd64, aarch64) on
-native runners and runs it against a fake module, DNS server on.
+CI runs the tests on Python 3.11 and 3.14, checks the formatting and lint (`ruff`) and the
+app definition (`tools/check_config.py`), and builds the image for both architectures
+(amd64, aarch64) on native runners and runs it against a fake module, DNS server on.
 
 **Privacy.** Debug logs contain the module's MAC and addresses, so `*.log` is ignored.
 `tools/privacy_check.py` fails on private addresses and MAC addresses in the files; list
