@@ -1,6 +1,7 @@
 """What the module asks: connections on the dis port (allowed_ips, TLS, one request, one
 reply, close) and, with the DNS server on, its DNS queries. Runs the status endpoint next
 to them."""
+
 from __future__ import annotations
 
 import asyncio
@@ -19,16 +20,16 @@ from .tracker import HOUR, Tracker
 
 log = logging.getLogger("keepalive")
 
-MAX_CONNECTIONS = 8     # the module holds one for about a second, every 5 s
-TLS_TIMEOUT = 10        # s for the TLS handshake
-REQUEST_TIMEOUT = 10    # s for the request after it
-CLOSE_TIMEOUT = 5       # s to wait for a closed connection to finish
-MAX_NOTED = 64          # things logged once: rejected addresses, TLS errors, request types
+MAX_CONNECTIONS = 8  # the module holds one for about a second, every 5 s
+TLS_TIMEOUT = 10  # s for the TLS handshake
+REQUEST_TIMEOUT = 10  # s for the request after it
+CLOSE_TIMEOUT = 5  # s to wait for a closed connection to finish
+MAX_NOTED = 64  # things logged once: rejected addresses, TLS errors, request types
 
 
 def _peer_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     try:
-        ip = ipaddress.ip_address(host.split("%")[0])
+        ip = ipaddress.ip_address(host.split("%", maxsplit=1)[0])
     except ValueError:
         return None
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
@@ -40,7 +41,7 @@ def _reason(e: OSError) -> str:
     if isinstance(e, TimeoutError):
         return "timeout"
     if isinstance(e, ssl.SSLError) and e.reason:
-        return e.reason             # NO_SHARED_CIPHER, WRONG_VERSION_NUMBER, ...
+        return e.reason  # NO_SHARED_CIPHER, WRONG_VERSION_NUMBER, ...
     return type(e).__name__
 
 
@@ -71,7 +72,9 @@ class KeepaliveServer:
         self.cfg = cfg
         self.tls = tls or server_context()
         self.allowed = {ipaddress.ip_address(ip) for ip in cfg.allowed_ips}
-        self.dns_answer = ipaddress.IPv4Address(cfg.dns_address).packed if cfg.dns_address else None
+        self.dns_answer = (
+            ipaddress.IPv4Address(cfg.dns_address).packed if cfg.dns_address else None
+        )
         self.tracker = Tracker()
         self.port: int | None = None
         self.dns_port: int | None = None
@@ -84,10 +87,14 @@ class KeepaliveServer:
         self._summary_task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        self._server = await asyncio.start_server(self._conn, self.cfg.host, self.cfg.port)
+        self._server = await asyncio.start_server(
+            self._conn, self.cfg.host, self.cfg.port
+        )
         self.port = self._server.sockets[0].getsockname()[1]
         if self.dns_answer:
-            self._dns = await dns.serve(self._dns_query, self.cfg.host, self.cfg.dns_port)
+            self._dns = await dns.serve(
+                self._dns_query, self.cfg.host, self.cfg.dns_port
+            )
             self.dns_port = self._dns.get_extra_info("sockname")[1]
         if self.cfg.status_port is not None:
             self._status = StatusServer(self.status, self.serving)
@@ -112,17 +119,24 @@ class KeepaliveServer:
 
     def serving(self) -> bool:
         """For /health: the dis port and, if on, the DNS server are open."""
-        dns_ok = self.dns_answer is None or (self._dns is not None and not self._dns.is_closing())
+        dns_ok = self.dns_answer is None or (
+            self._dns is not None and not self._dns.is_closing()
+        )
         return self._server is not None and self._server.is_serving() and dns_ok
 
     def status(self) -> dict:
-        return {"version": __version__, "dns_server": self.dns_answer is not None,
-                **self.tracker.snapshot(time.monotonic())}
+        return {
+            "version": __version__,
+            "dns_server": self.dns_answer is not None,
+            **self.tracker.snapshot(time.monotonic()),
+        }
 
     async def _summaries(self) -> None:
         while True:
             await asyncio.sleep(HOUR)
-            log.info(self.tracker.summary(time.monotonic(), dns=self.dns_answer is not None))
+            log.info(
+                self.tracker.summary(time.monotonic(), dns=self.dns_answer is not None)
+            )
 
     def _note(self, key: str, msg: str, *args) -> None:
         """Log at info once per key; the hourly summary and the status count the rest."""
@@ -131,15 +145,20 @@ class KeepaliveServer:
         self._noted.add(key)
         log.info(msg, *args)
 
-    async def _conn(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _conn(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         peer = writer.get_extra_info("peername") or ("?", 0)
         where = f"{peer[0]}:{peer[1]}"
         ip = _peer_ip(str(peer[0]))
         if self.allowed and ip not in self.allowed:
             self.tracker.count("rejected", time.monotonic())
             log.debug("%s rejected: not in allowed_ips", where)
-            self._note(f"rejected {ip}", "rejected a connection from an address not in allowed_ips "
-                                         "(logged once per address)")
+            self._note(
+                f"rejected {ip}",
+                "rejected a connection from an address not in allowed_ips "
+                "(logged once per address)",
+            )
             await _close(writer)
             return
         if len(self._writers) >= MAX_CONNECTIONS:
@@ -155,14 +174,20 @@ class KeepaliveServer:
             self._writers.discard(writer)
             await _close(writer)
 
-    async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, where: str) -> None:
+    async def _serve(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, where: str
+    ) -> None:
         conn = TLSConnection(self.tls, reader, writer)
         try:
             await asyncio.wait_for(conn.handshake(), TLS_TIMEOUT)
-        except OSError as e:                # ssl.SSLError, a reset, the timeout
+        except OSError as e:  # ssl.SSLError, a reset, the timeout
             self.tracker.count("tls_failed", time.monotonic())
             log.debug("%s TLS failed: %s", where, _reason(e))
-            self._note(f"tls {_reason(e)}", "TLS handshake failed: %s (logged once per reason)", _reason(e))
+            self._note(
+                f"tls {_reason(e)}",
+                "TLS handshake failed: %s (logged once per reason)",
+                _reason(e),
+            )
             return
         log.debug("%s TLS %s %s", where, conn.ssl.version(), conn.ssl.cipher()[0])
 
@@ -170,19 +195,29 @@ class KeepaliveServer:
             request, raw = await asyncio.wait_for(_read_request(conn), REQUEST_TIMEOUT)
         except (OSError, BadRequest) as e:  # the timeout is an OSError too
             self.tracker.count("bad", time.monotonic())
-            log.debug("%s no request: %s", where, "timeout" if isinstance(e, TimeoutError) else e)
+            log.debug(
+                "%s no request: %s",
+                where,
+                "timeout" if isinstance(e, TimeoutError) else e,
+            )
             return
         log.debug("%s -> %.300r", where, raw)
 
         # The address the module was sent to: from the DNS server if it is on; else the one
         # this connection came in on (inside a container, the container's own).
-        answer = reply(request, self.cfg.dns_address or writer.get_extra_info("sockname")[0])
+        answer = reply(
+            request, self.cfg.dns_address or writer.get_extra_info("sockname")[0]
+        )
         if answer is None:
             t = request.get("t")
             kind = t[:32] if isinstance(t, str) else type(t).__name__
             self.tracker.count("unknown", time.monotonic())
-            self._note(f"type {kind}", "the module sent a request this app does not answer: %r "
-                                       "(logged once per type)", kind)
+            self._note(
+                f"type {kind}",
+                "the module sent a request this app does not answer: %r "
+                "(logged once per type)",
+                kind,
+            )
             return
         try:
             await conn.write(answer)
@@ -202,8 +237,11 @@ class KeepaliveServer:
         if self.allowed and ip not in self.allowed:
             self.tracker.count("dns_rejected", t)
             log.debug("DNS %s rejected: not in allowed_ips", host)
-            self._note(f"dns rejected {ip}", "rejected a DNS query from an address not in allowed_ips "
-                                             "(logged once per address)")
+            self._note(
+                f"dns rejected {ip}",
+                "rejected a DNS query from an address not in allowed_ips "
+                "(logged once per address)",
+            )
             return None
         try:
             answer, name = dns.answer(query, self.dns_answer)
@@ -217,7 +255,13 @@ class KeepaliveServer:
             self._note("dns", "DNS: first answer for %s", dns.DOMAIN)
         else:
             self.tracker.count("dns_other", t)
-            self._note("dns other", "DNS: answered NXDOMAIN to a name other than %s "
-                                    "(logged once; the names at debug)", dns.DOMAIN)
-        log.debug("DNS %s %r -> %s", host, name, self.cfg.dns_address if mine else "NXDOMAIN")
+            self._note(
+                "dns other",
+                "DNS: answered NXDOMAIN to a name other than %s "
+                "(logged once; the names at debug)",
+                dns.DOMAIN,
+            )
+        log.debug(
+            "DNS %s %r -> %s", host, name, self.cfg.dns_address if mine else "NXDOMAIN"
+        )
         return answer

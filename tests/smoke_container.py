@@ -7,6 +7,7 @@ then dis with the module's TLS settings; the reply must be svr without an MQTT b
 
 Usage: python tests/smoke_container.py
 """
+
 import argparse
 import asyncio
 import json
@@ -16,7 +17,7 @@ import urllib.request
 
 from helpers import FakeModule, dns_query, dns_reply, udp_ask
 
-DNS_ADDRESS = "192.0.2.1"       # dns_address in options-ci.json
+DNS_ADDRESS = "192.0.2.1"  # dns_address in options-ci.json
 
 
 def get(url: str):
@@ -45,14 +46,24 @@ async def main(a) -> None:
     for _ in range(2):
         m = await FakeModule().connect(a.port)
         tls = m.writer.get_extra_info("ssl_object")
-        assert (tls.version(), tls.cipher()[0]) == ("TLSv1.2", "AES256-GCM-SHA384"), tls.cipher()
+        assert (tls.version(), tls.cipher()[0]) == ("TLSv1.2", "AES256-GCM-SHA384"), (
+            tls.cipher()
+        )
         svr = await m.ask()
-        assert svr["t"] == "svr" and "mqttInfo" not in svr and svr["ip"] == DNS_ADDRESS, svr
+        assert (
+            svr["t"] == "svr" and "mqttInfo" not in svr and svr["ip"] == DNS_ADDRESS
+        ), svr
         await m.close()
 
     status = json.loads(get(base + "/status")[1])
-    assert status["connected"] and status["modules"] == 1 and status["totals"]["dis"] == 2, status
-    assert status["dns_server"] and status["last_hour"]["dns"] == 1 and status["totals"]["dns_other"] == 1, status
+    assert (
+        status["connected"] and status["modules"] == 1 and status["totals"]["dis"] == 2
+    ), status
+    assert (
+        status["dns_server"]
+        and status["last_hour"]["dns"] == 1
+        and status["totals"]["dns_other"] == 1
+    ), status
     print("smoke test ok:", json.dumps(status["totals"]))
 
 

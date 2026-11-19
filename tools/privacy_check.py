@@ -3,14 +3,14 @@
 
 Fails on private network addresses (RFC 1918, link-local, CGNAT), MAC addresses (with or
 without separators, as Gree writes them) other than the test MACs (aabbccdd...), tracked
-log files, and
-the strings listed in .privacy-local: one per line, never committed (.gitignore) - your
-module MACs, Wi-Fi names, host and user names.
+log files, and the strings listed in .privacy-local: one per line, never committed
+(.gitignore) - your module MACs, Wi-Fi names, host and user names.
 
   python tools/privacy_check.py            the files in git (or all files, without git)
   python tools/privacy_check.py --history  also every commit and commit message, for the
                                            .privacy-local strings
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,26 +22,46 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOCAL = os.path.join(ROOT, ".privacy-local")
-TEST_MAC_PREFIX = "aabbccdd"            # the made-up MACs of the tests
-NETWORKS = [ipaddress.ip_network(n) for n in  # privacy: ignore (the line lists the private ranges)
-            ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10")]  # privacy: ignore
-IGNORE = "privacy: ignore"      # a line with this marker is not checked for addresses or MACs
+TEST_MAC_PREFIX = "aabbccdd"  # the made-up MACs of the tests
+NETWORKS = [
+    ipaddress.ip_network(n)
+    for n in (
+        "10.0.0.0/8",  # privacy: ignore (the private ranges themselves)
+        "172.16.0.0/12",  # privacy: ignore
+        "192.168.0.0/16",  # privacy: ignore
+        "169.254.0.0/16",  # privacy: ignore
+        "100.64.0.0/10",  # privacy: ignore
+    )
+]
+# A line with this marker is not checked for addresses or MACs.
+IGNORE = "privacy: ignore"
 IPV4 = re.compile(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])")
 MAC = re.compile(r"(?i)(?<![0-9a-z:-])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![0-9a-z:-])")
-BARE_MAC = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{12}(?![0-9A-Za-z])")     # a Gree "mac": 12 hex digits
+# A Gree "mac": 12 hex digits.
+BARE_MAC = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{12}(?![0-9A-Za-z])")
 
 
 def files() -> list[str]:
     """Tracked files and new ones git would add (not ignored)."""
     try:
-        out = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=ROOT,
-                             capture_output=True, check=True).stdout
+        out = subprocess.run(
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            cwd=ROOT,
+            capture_output=True,
+            check=True,
+        ).stdout
         return [f for f in out.decode().split("\0") if f]
     except (OSError, subprocess.CalledProcessError):
         found = []
         for d, dirs, names in os.walk(ROOT):
-            dirs[:] = [x for x in dirs if x not in (".git", "__pycache__", ".idea", ".venv")]
-            found += [os.path.relpath(os.path.join(d, n), ROOT) for n in names if os.path.join(d, n) != LOCAL]
+            dirs[:] = [
+                x for x in dirs if x not in (".git", "__pycache__", ".idea", ".venv")
+            ]
+            found += [
+                os.path.relpath(os.path.join(d, n), ROOT)
+                for n in names
+                if os.path.join(d, n) != LOCAL
+            ]
         return found
 
 
@@ -82,7 +102,11 @@ def scan_text(text: str, where: str, secrets: list[str]) -> list[str]:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--history", action="store_true", help="also search all commits for .privacy-local strings")
+    p.add_argument(
+        "--history",
+        action="store_true",
+        help="also search all commits for .privacy-local strings",
+    )
     a = p.parse_args(argv)
     secrets = local_strings()
     findings = []
@@ -102,12 +126,20 @@ def main(argv=None) -> int:
         if not secrets:
             print("no .privacy-local: nothing to search in the history")
         else:
-            out = subprocess.run(["git", "log", "--all", "-p", "--format=commit %H%n%an <%ae>%n%B"], cwd=ROOT,
-                                 capture_output=True, check=True).stdout.decode("utf-8", "replace")
-            findings += [f for f in scan_text(out, "history", secrets) if ".privacy-local" in f]
+            out = subprocess.run(
+                ["git", "log", "--all", "-p", "--format=commit %H%n%an <%ae>%n%B"],
+                cwd=ROOT,
+                capture_output=True,
+                check=True,
+            ).stdout.decode("utf-8", "replace")
+            findings += [
+                f for f in scan_text(out, "history", secrets) if ".privacy-local" in f
+            ]
     for f in findings:
         print(f)
-    print(f"privacy check: {'FAILED' if findings else 'ok'} ({len(secrets)} local string(s) checked)")
+    print(
+        f"privacy check: {'FAILED' if findings else 'ok'} ({len(secrets)} local string(s) checked)"
+    )
     return 1 if findings else 0
 
 

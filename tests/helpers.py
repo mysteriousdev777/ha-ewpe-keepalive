@@ -1,9 +1,12 @@
 """A fake module and helpers for the tests. No real device data here: the MAC and the
 addresses are made up."""
+
 from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
+import functools
 import json
 import os
 import socket
@@ -24,15 +27,12 @@ from keepalive.tls import server_context  # noqa: E402
 
 MAC = "aabbccddeeff"
 MODULE_CIPHERS = "AES256-GCM-SHA384:AES256-SHA256:AES256-SHA:AES128-GCM-SHA256:AES128-SHA256:AES128-SHA"
-_server_tls: ssl.SSLContext | None = None
 
 
+@functools.cache
 def server_tls() -> ssl.SSLContext:
     """One server context for all tests: making the certificate takes a moment."""
-    global _server_tls
-    if _server_tls is None:
-        _server_tls = server_context()
-    return _server_tls
+    return server_context()
 
 
 def module_tls() -> ssl.SSLContext:
@@ -46,7 +46,9 @@ def module_tls() -> ssl.SSLContext:
 
 
 def dis(mac: str = MAC) -> bytes:
-    return json.dumps({"t": "dis", "mac": mac, "p": 1, "needMqtt": 1}, separators=(",", ":")).encode()
+    return json.dumps(
+        {"t": "dis", "mac": mac, "p": 1, "needMqtt": 1}, separators=(",", ":")
+    ).encode()
 
 
 def unpack(line: bytes) -> tuple[dict, dict]:
@@ -55,15 +57,20 @@ def unpack(line: bytes) -> tuple[dict, dict]:
     decryptor = Cipher(algorithms.AES(GENERIC_KEY), modes.ECB()).decryptor()
     unpadder = padding.PKCS7(128).unpadder()
     secret = base64.b64decode(envelope["pack"])
-    plain = unpadder.update(decryptor.update(secret) + decryptor.finalize()) + unpadder.finalize()
+    plain = (
+        unpadder.update(decryptor.update(secret) + decryptor.finalize())
+        + unpadder.finalize()
+    )
     return envelope, json.loads(plain)
 
 
 class FakeModule:
     """Connects like the module (TLS without SNI), sends requests and reads reply lines."""
 
-    async def connect(self, port: int, host: str = "127.0.0.1") -> "FakeModule":
-        self.reader, self.writer = await asyncio.open_connection(host, port, ssl=module_tls(), server_hostname="")
+    async def connect(self, port: int, host: str = "127.0.0.1") -> FakeModule:
+        self.reader, self.writer = await asyncio.open_connection(
+            host, port, ssl=module_tls(), server_hostname=""
+        )
         return self
 
     async def send(self, data: bytes) -> None:
@@ -78,16 +85,14 @@ class FakeModule:
         try:
             return await asyncio.wait_for(self.reader.read(100), timeout) == b""
         except (ConnectionError, ssl.SSLError):
-            return True                 # closed with a reset: still closed by the server
-        except asyncio.TimeoutError:
+            return True  # closed with a reset: still closed by the server
+        except TimeoutError:
             return False
 
     async def close(self) -> None:
         self.writer.close()
-        try:
+        with contextlib.suppress(TimeoutError, OSError, ssl.SSLError):
             await asyncio.wait_for(self.writer.wait_closed(), 3)
-        except (OSError, ssl.SSLError, asyncio.TimeoutError):
-            pass
 
     async def ask(self, mac: str = MAC) -> dict:
         """One dis request: the svr message of the reply."""
@@ -95,7 +100,9 @@ class FakeModule:
         return unpack(await self.reply())[1]
 
 
-def dns_query(name: str, qtype: int = 1, ident: int = 0x1234, rd: bool = True, edns: bool = False) -> bytes:
+def dns_query(
+    name: str, qtype: int = 1, ident: int = 0x1234, rd: bool = True, edns: bool = False
+) -> bytes:
     """A DNS query like a stub resolver's: one question, recursion desired, EDNS if asked."""
     qname = b"".join(bytes([len(p)]) + p.encode() for p in name.split(".")) + b"\0"
     head = struct.pack("!HHHHHH", ident, 0x0100 if rd else 0, 1, 0, 0, int(edns))
@@ -110,15 +117,27 @@ def dns_reply(data: bytes) -> dict:
     while data[i]:
         i += 1 + data[i]
     i += 5
-    r = {"id": ident, "flags": flags & 0xFFF0, "rcode": flags & 0xF, "counts": (qd, an, ns, ar),
-         "question": data[12:i], "address": None, "ttl": None, "size": len(data)}
+    r = {
+        "id": ident,
+        "flags": flags & 0xFFF0,
+        "rcode": flags & 0xF,
+        "counts": (qd, an, ns, ar),
+        "question": data[12:i],
+        "address": None,
+        "ttl": None,
+        "size": len(data),
+    }
     if an:
         _, rtype, _, ttl, size = struct.unpack_from("!HHHIH", data, i)
-        r.update(address=socket.inet_ntoa(data[i + 12:i + 12 + size]), ttl=ttl, type=rtype)
+        r.update(
+            address=socket.inet_ntoa(data[i + 12 : i + 12 + size]), ttl=ttl, type=rtype
+        )
     return r
 
 
-async def udp_ask(port: int, data: bytes, timeout: float = 2.0, host: str = "127.0.0.1") -> bytes | None:
+async def udp_ask(
+    port: int, data: bytes, timeout: float = 2.0, host: str = "127.0.0.1"
+) -> bytes | None:
     """Send one datagram, return the first reply, or None if none comes in time."""
     loop = asyncio.get_running_loop()
     got: asyncio.Future = loop.create_future()
@@ -135,7 +154,7 @@ async def udp_ask(port: int, data: bytes, timeout: float = 2.0, host: str = "127
     try:
         transport.sendto(data)
         return await asyncio.wait_for(got, timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return None
     finally:
         transport.close()

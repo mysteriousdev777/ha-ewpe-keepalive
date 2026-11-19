@@ -1,5 +1,6 @@
 """The normal (info) log may be shown to others: no MAC, no addresses. They appear only in
 the debug log."""
+
 import io
 import logging
 import unittest
@@ -19,7 +20,7 @@ class PrivacyTest(unittest.IsolatedAsyncioTestCase):
 
     async def session_log(self, level: str) -> str:
         setup_logging(level)
-        for h in list(log.handlers):          # keep the test output quiet
+        for h in list(log.handlers):  # keep the test output quiet
             log.removeHandler(h)
         out = io.StringIO()
         log.addHandler(logging.StreamHandler(out))

@@ -1,17 +1,23 @@
 """HTTP status endpoint on the internal network: GET /status, JSON for Home Assistant REST
 sensors, and GET /health for the Supervisor watchdog. It reads the server's state through
 two callables and knows nothing else about it."""
+
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 import contextlib
 import json
-from typing import Callable
 
 MAX_CONNECTIONS = 16
-REQUEST_LIMIT = 4096            # bytes of an HTTP request line or header
-DEADLINE = 5                    # seconds to read a whole request
-REASONS = {200: "OK", 404: "Not Found", 405: "Method Not Allowed", 503: "Service Unavailable"}
+REQUEST_LIMIT = 4096  # bytes of an HTTP request line or header
+DEADLINE = 5  # seconds to read a whole request
+REASONS = {
+    200: "OK",
+    404: "Not Found",
+    405: "Method Not Allowed",
+    503: "Service Unavailable",
+}
 
 
 async def _read_request(reader: asyncio.StreamReader) -> bytes:
@@ -41,7 +47,9 @@ class StatusServer:
         self.port: int | None = None
 
     async def start(self, host: str, port: int) -> None:
-        self._server = await asyncio.start_server(self._conn, host, port, limit=REQUEST_LIMIT)
+        self._server = await asyncio.start_server(
+            self._conn, host, port, limit=REQUEST_LIMIT
+        )
         self.port = self._server.sockets[0].getsockname()[1]
 
     def close(self) -> None:
@@ -62,15 +70,21 @@ class StatusServer:
             code, ctype = 200, "application/json"
             body = json.dumps(self._status(), indent=2).encode() + b"\n"
         elif path == "/health":
-            code, ctype = (200, "text/plain") if self._healthy() else (503, "text/plain")
+            code, ctype = (
+                (200, "text/plain") if self._healthy() else (503, "text/plain")
+            )
             body = b"ok\n" if code == 200 else b"not serving\n"
         else:
             code, ctype, body = 404, "text/plain", b"not found\n"
-        head = (f"HTTP/1.1 {code} {REASONS[code]}\r\nContent-Type: {ctype}\r\nContent-Length: {len(body)}\r\n"
-                f"Cache-Control: no-store\r\nConnection: close\r\n\r\n").encode()
+        head = (
+            f"HTTP/1.1 {code} {REASONS[code]}\r\nContent-Type: {ctype}\r\nContent-Length: {len(body)}\r\n"
+            f"Cache-Control: no-store\r\nConnection: close\r\n\r\n"
+        ).encode()
         return head + (b"" if method == "HEAD" else body)
 
-    async def _conn(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _conn(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         if self._active >= MAX_CONNECTIONS:
             await _close(writer)
             return
@@ -79,7 +93,7 @@ class StatusServer:
             request = await asyncio.wait_for(_read_request(reader), DEADLINE)
             writer.write(self._response(request))
             await writer.drain()
-        except (asyncio.TimeoutError, OSError, ValueError, UnicodeError):
+        except (TimeoutError, OSError, ValueError, UnicodeError):
             pass
         finally:
             self._active -= 1

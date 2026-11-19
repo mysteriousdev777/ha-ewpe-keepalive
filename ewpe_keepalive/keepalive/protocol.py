@@ -9,6 +9,7 @@ base64, inside {"t":"pack","i":1,...}, one line. Without mqttInfo in svr the mod
 not connect to MQTT; it asks dis again once its 5 s answer timeout is over (firmware V1.45).
 No I/O here.
 """
+
 from __future__ import annotations
 
 import base64
@@ -17,10 +18,10 @@ import json
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-DIS_PORT = 1813                     # fixed in the firmware: <region>dis.gree.com:1813
-DIS_HOST = "eu.dis.gree.com"        # host in svr, as the prototype the module was tested with
-GENERIC_KEY = b"a3K8Bx%2r8Y7#xDh"   # public: the same in every Gree module and app
-MAX_REQUEST = 4096                  # bytes; a dis request has about 60
+DIS_PORT = 1813  # fixed in the firmware: <region>dis.gree.com:1813
+DIS_HOST = "eu.dis.gree.com"  # host in svr: a dis name, see svr()
+GENERIC_KEY = b"a3K8Bx%2r8Y7#xDh"  # public: the same in every Gree module and app
+MAX_REQUEST = 4096  # bytes; a dis request has about 60
 
 _decoder = json.JSONDecoder()
 
@@ -43,7 +44,8 @@ def parse_request(buf: bytes) -> dict | None:
         request, _ = _decoder.raw_decode(text)
     except json.JSONDecodeError:
         return None
-    except RecursionError:          # [[[[...: deeper than the parser goes (about 1000 levels on 3.11)
+    except RecursionError:
+        # [[[[...: deeper than the parser goes (about 1000 levels on 3.11)
         raise BadRequest("nested too deep") from None
     return request
 
@@ -52,8 +54,18 @@ def svr(address: str) -> dict:
     """The cloud's answer to dis, without mqttInfo. The addresses point at this server;
     host is a dis name, which any rewrite of dis.gree.com sends here too. Without mqttInfo
     firmware V1.45 reads none of them and asks dis again."""
-    return {"t": "svr", "ip": address, "ip2": address, "Ip3": address, "host": DIS_HOST,
-            "udpPort": DIS_PORT, "tcpPort": DIS_PORT, "protocol": "", "datHost": "", "datHostPort": 0}
+    return {
+        "t": "svr",
+        "ip": address,
+        "ip2": address,
+        "Ip3": address,
+        "host": DIS_HOST,
+        "udpPort": DIS_PORT,
+        "tcpPort": DIS_PORT,
+        "protocol": "",
+        "datHost": "",
+        "datHostPort": 0,
+    }
 
 
 def pack(message: dict, tcid: str) -> bytes:
@@ -61,9 +73,18 @@ def pack(message: dict, tcid: str) -> bytes:
     padder = padding.PKCS7(128).padder()
     encryptor = Cipher(algorithms.AES(GENERIC_KEY), modes.ECB()).encryptor()
     plain = json.dumps(message, separators=(",", ":")).encode()
-    secret = encryptor.update(padder.update(plain) + padder.finalize()) + encryptor.finalize()
-    envelope = {"t": "pack", "i": 1, "uid": 0, "cid": "", "tcid": tcid,
-                "pack": base64.b64encode(secret).decode()}
+    secret = (
+        encryptor.update(padder.update(plain) + padder.finalize())
+        + encryptor.finalize()
+    )
+    envelope = {
+        "t": "pack",
+        "i": 1,
+        "uid": 0,
+        "cid": "",
+        "tcid": tcid,
+        "pack": base64.b64encode(secret).decode(),
+    }
     return json.dumps(envelope, separators=(",", ":")).encode() + b"\n"
 
 

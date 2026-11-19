@@ -6,20 +6,21 @@ the rewrite belongs there, and this stays off.
 Only what the module needs: UDP, one question per query, an A record for dis.gree.com
 and the names under it. Any other name gets NXDOMAIN: no recursion, no forwarding, no
 cache, so the module reaches nothing else by name. Firmware V1.45 asks eu.dis.gree.com
-once a minute (the TTL) and nothing else. The reply flags and the TTL are those of the
-prototype the module was tested with.
+once a minute (the TTL) and nothing else, and works with these replies: the flags and the
+TTL below.
 
 No I/O here but the UDP endpoint at the end; what to answer whom is the server's call."""
+
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 import struct
-from typing import Callable
 
-DNS_PORT = 53                   # the module asks the DNS server its DHCP lease names, on 53
+DNS_PORT = 53  # the module asks the DNS server its DHCP lease names, on 53
 DOMAIN = "dis.gree.com"
-TTL = 60                        # s: the module asks again once a minute
-MAX_QUERY = 512                 # bytes: the classic UDP limit; the module's query has 33
+TTL = 60  # s: the module asks again once a minute
+MAX_QUERY = 512  # bytes: the classic UDP limit; the module's query has 33
 TYPE_A = CLASS_IN = 1
 NXDOMAIN = 3
 QR, OPCODE, AA, RD, RA = 0x8000, 0x7800, 0x0400, 0x0100, 0x0080
@@ -46,8 +47,9 @@ def question(query: bytes) -> tuple[str, int, int, int]:
         if n == 0:
             break
         if n > 63 or i + 1 + n > len(query):
-            raise BadQuery("a cut or compressed label")      # a question has nothing to compress
-        labels.append(query[i + 1:i + 1 + n])
+            # A question has nothing to compress.
+            raise BadQuery("a cut or compressed label")
+        labels.append(query[i + 1 : i + 1 + n])
         i += 1 + n
     end = i + 5
     if end > len(query):
@@ -66,11 +68,21 @@ def answer(query: bytes, address: bytes) -> tuple[bytes, str]:
     NXDOMAIN. Additional records of the query (EDNS) are left out. BadQuery: no reply."""
     name, qtype, qclass, end = question(query)
     mine = ours(name)
-    flags = QR | AA | RA | (struct.unpack_from("!H", query, 2)[0] & RD) | (0 if mine else NXDOMAIN)
+    flags = (
+        QR
+        | AA
+        | RA
+        | (struct.unpack_from("!H", query, 2)[0] & RD)
+        | (0 if mine else NXDOMAIN)
+    )
     record = mine and qtype == TYPE_A and qclass == CLASS_IN
-    reply = query[:2] + struct.pack("!HHHHH", flags, 1, int(record), 0, 0) + query[12:end]
+    reply = (
+        query[:2] + struct.pack("!HHHHH", flags, 1, int(record), 0, 0) + query[12:end]
+    )
     if record:
-        reply += struct.pack("!HHHIH", 0xC00C, TYPE_A, CLASS_IN, TTL, len(address)) + address
+        reply += (
+            struct.pack("!HHHIH", 0xC00C, TYPE_A, CLASS_IN, TTL, len(address)) + address
+        )
     return reply, name
 
 
@@ -79,7 +91,7 @@ class _Endpoint(asyncio.DatagramProtocol):
         self._handle = handle
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
-        self._transport: asyncio.DatagramTransport = transport     # type: ignore[assignment]
+        self._transport: asyncio.DatagramTransport = transport  # type: ignore[assignment]
 
     def datagram_received(self, data: bytes, addr: tuple) -> None:
         reply = self._handle(data, addr[0])
@@ -87,11 +99,14 @@ class _Endpoint(asyncio.DatagramProtocol):
             self._transport.sendto(reply, addr)
 
     def error_received(self, exc: Exception) -> None:
-        pass        # an ICMP error for an earlier reply (Windows reports them): nothing to do
+        pass  # an ICMP error for an earlier reply (Windows reports them): nothing to do
 
 
-async def serve(handle: Callable[[bytes, str], bytes | None], host: str, port: int) -> asyncio.DatagramTransport:
+async def serve(
+    handle: Callable[[bytes, str], bytes | None], host: str, port: int
+) -> asyncio.DatagramTransport:
     """A UDP endpoint: handle(query, sender address) gives the reply, or None for none."""
     transport, _ = await asyncio.get_running_loop().create_datagram_endpoint(
-        lambda: _Endpoint(handle), local_addr=(host, port))
+        lambda: _Endpoint(handle), local_addr=(host, port)
+    )
     return transport

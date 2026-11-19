@@ -8,32 +8,51 @@ one app: each is followed by its MAC, the counters add them up.
 All times here are time.monotonic() seconds, so a jump of the system clock does not
 distort intervals; snapshot() turns them into wall-clock timestamps. The last hour is
 counted per minute: the same memory under any number of events."""
+
 from __future__ import annotations
 
 import collections
 import datetime as dt
 import time
 
-CONNECTED_WINDOW = 30   # s: a dis within this = connected
-GAP = 15                # s between two dis of a module = a pause (restart, Wi-Fi, app not reachable)
+CONNECTED_WINDOW = 30  # s: a dis within this = connected
+GAP = 15  # s between two dis of a module = a pause (restart, Wi-Fi, app not reachable)
 HOUR = 3600
 MINUTE = 60
 HOURLY = ("dis", "gaps", "tls_failed", "rejected", "dns")
-TOTALS = ("connections", "dis", "gaps", "tls_failed", "rejected", "unknown", "bad", "busy",
-          "dns", "dns_other", "dns_rejected", "dns_bad")
+TOTALS = (
+    "connections",
+    "dis",
+    "gaps",
+    "tls_failed",
+    "rejected",
+    "unknown",
+    "bad",
+    "busy",
+    "dns",
+    "dns_other",
+    "dns_rejected",
+    "dns_bad",
+)
 MAX_MODULES = 64
 
 
 def iso(t: float | None) -> str | None:
-    return None if t is None else dt.datetime.fromtimestamp(t, dt.timezone.utc).isoformat(timespec="seconds")
+    return (
+        None
+        if t is None
+        else dt.datetime.fromtimestamp(t, dt.UTC).isoformat(timespec="seconds")
+    )
 
 
 class Tracker:
     def __init__(self, clock=time.monotonic) -> None:
         self.started = clock()
         self.totals: collections.Counter[str] = collections.Counter()
-        self.minutes: collections.deque[tuple[int, collections.Counter[str]]] = collections.deque()
-        self.modules: dict[str, float] = {}     # MAC -> time of its last dis
+        self.minutes: collections.deque[tuple[int, collections.Counter[str]]] = (
+            collections.deque()
+        )
+        self.modules: dict[str, float] = {}  # MAC -> time of its last dis
         self.last_dis: float | None = None
 
     def count(self, key: str, t: float) -> None:
@@ -60,12 +79,18 @@ class Tracker:
             if len(self.modules) < MAX_MODULES:
                 self.modules[mac] = t
                 n = len(self.modules)
-                msgs.append("module connected" if n == 1 else f"another module connected ({n} modules)")
+                msgs.append(
+                    "module connected"
+                    if n == 1
+                    else f"another module connected ({n} modules)"
+                )
         else:
             if t - last > GAP:
                 self.count("gaps", t)
-                msgs.append(f"module back after {int(t - last)} s without dis requests "
-                            "(it restarted, lost Wi-Fi, or could not reach the app)")
+                msgs.append(
+                    f"module back after {int(t - last)} s without dis requests "
+                    "(it restarted, lost Wi-Fi, or could not reach the app)"
+                )
             self.modules[mac] = t
         self.last_dis = t
         return msgs
@@ -99,6 +124,8 @@ class Tracker:
         """dns: the DNS server is on, so its answers are worth a word."""
         h = self.last_hour(t)
         state = "connected" if self.connected(t) else "NOT connected"
-        return (f"last hour: module {state}; {h['dis']} dis request(s), {h['gaps']} pause(s), "
-                f"{h['tls_failed']} TLS failure(s), {h['rejected']} connection(s) rejected"
-                + (f", {h['dns']} DNS answer(s) for dis.gree.com" if dns else ""))
+        return (
+            f"last hour: module {state}; {h['dis']} dis request(s), {h['gaps']} pause(s), "
+            f"{h['tls_failed']} TLS failure(s), {h['rejected']} connection(s) rejected"
+            + (f", {h['dns']} DNS answer(s) for dis.gree.com" if dns else "")
+        )
